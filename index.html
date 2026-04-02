@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Presigned URL Demo — RustFS</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; color: #f8fafc; }
+    .subtitle { color: #64748b; font-size: 0.875rem; margin-bottom: 2rem; }
+
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 { font-size: 1rem; margin-bottom: 1rem; color: #94a3b8; letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.75rem; }
+
+    .upload-zone {
+      border: 2px dashed #334155;
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .upload-zone:hover, .upload-zone.drag { border-color: #6366f1; background: #1e1b4b22; }
+    .upload-zone input { display: none; }
+    .upload-zone p { color: #64748b; font-size: 0.875rem; }
+    .upload-zone .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+
+    button {
+      background: #6366f1;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: background 0.2s;
+    }
+    button:hover { background: #4f46e5; }
+    button:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+    button.secondary { background: #0f172a; border: 1px solid #334155; }
+    button.secondary:hover { background: #1e293b; }
+
+    .progress-bar {
+      height: 6px;
+      background: #334155;
+      border-radius: 99px;
+      overflow: hidden;
+      margin-top: 1rem;
+      display: none;
+    }
+    .progress-bar .fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #8b5cf6);
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    .file-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .file-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      background: #0f172a;
+      border-radius: 8px;
+      font-size: 0.875rem;
+    }
+    .file-item .name { color: #e2e8f0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 1rem; }
+    .file-item .meta { color: #475569; font-size: 0.75rem; margin-right: 1rem; white-space: nowrap; }
+    .file-actions { display: flex; gap: 0.5rem; }
+
+    .log {
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: "Fira Code", monospace;
+      font-size: 0.75rem;
+      max-height: 200px;
+      overflow-y: auto;
+      color: #64748b;
+    }
+    .log .entry { padding: 0.15rem 0; }
+    .log .entry.success { color: #4ade80; }
+    .log .entry.error { color: #f87171; }
+    .log .entry.info { color: #60a5fa; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 99px;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-left: 0.5rem;
+    }
+    .badge.get { background: #0c4a6e; color: #38bdf8; }
+    .badge.put { background: #14532d; color: #4ade80; }
+
+    .empty { color: #475569; font-size: 0.875rem; text-align: center; padding: 1rem; }
+  </style>
+</head>
+<body>
+
+<h1> Presigned URL Demo</h1>
+<p class="subtitle">Upload & download langsung ke RustFS — server hanya generate URL</p>
+
+<!-- Upload Card -->
+<div class="card">
+  <h2>Upload File <span class="badge put">PUT presigned</span></h2>
+  <div class="upload-zone" id="dropzone">
+    <div class="icon">📤</div>
+    <p>Klik atau drag & drop file ke sini</p>
+    <input type="file" id="fileInput" multiple />
+  </div>
+  <div class="progress-bar" id="progressBar">
+    <div class="fill" id="progressFill"></div>
+  </div>
+</div>
+
+<!-- File List Card -->
+<div class="card">
+  <h2 style="display:flex;justify-content:space-between;align-items:center">
+    <span>File di RustFS</span>
+    <button class="secondary" onclick="loadFiles()" style="text-transform:none;letter-spacing:0">↺ Refresh</button>
+  </h2>
+  <div class="file-list" id="fileList">
+    <div class="empty">Klik refresh untuk melihat file…</div>
+  </div>
+</div>
+
+<!-- Log Card -->
+<div class="card">
+  <h2>Activity Log</h2>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+  const API = "http://localhost:3000";
+
+  // ─── Logging ─────────────────────────────────────────────────────────────
+  function log(msg, type = "info") {
+    const el = document.getElementById("log");
+    const time = new Date().toLocaleTimeString("id-ID");
+    el.innerHTML += `<div class="entry ${type}">[${time}] ${msg}</div>`;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // ─── Upload flow ─────────────────────────────────────────────────────────
+  async function uploadFile(file) {
+    log(`Meminta presigned URL untuk: ${file.name}…`);
+
+    // Step 1: Minta presigned URL dari server kita
+    const res = await fetch(
+      `${API}/presign/upload?filename=${encodeURIComponent(file.name)}&type=${encodeURIComponent(file.type || "application/octet-stream")}`
+    );
+    const { url, key, expiresIn } = await res.json();
+    log(`Dapat presigned URL (berlaku ${expiresIn}s): ${url.slice(0, 80)}…`, "success");
+
+    // Step 2: Upload LANGSUNG ke RustFS — server tidak terlibat!
+    log(`Upload langsung ke RustFS…`, "info");
+    const progressBar = document.getElementById("progressBar");
+    const progressFill = document.getElementById("progressFill");
+    progressBar.style.display = "block";
+
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          progressFill.style.width = `${(e.loaded / e.total) * 100}%`;
+        }
+      };
+      xhr.onload = () => (xhr.status === 200 ? resolve() : reject(new Error(`HTTP ${xhr.status}`)));
+      xhr.onerror = reject;
+      xhr.open("PUT", url);
+      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+      xhr.send(file);
+    });
+
+    progressFill.style.width = "100%";
+    setTimeout(() => { progressBar.style.display = "none"; progressFill.style.width = "0%"; }, 1000);
+
+    log(`Upload berhasil! Key: ${key}`, "success");
+    loadFiles();
+  }
+
+  // ─── Download flow ────────────────────────────────────────────────────────
+  async function downloadFile(key) {
+    log(`Meminta presigned URL untuk download: ${key}…`);
+
+    const res = await fetch(`${API}/presign/download?key=${encodeURIComponent(key)}`);
+    const { url, expiresIn } = await res.json();
+    log(`Dapat presigned URL (berlaku ${expiresIn}s)`, "success");
+    log(`Download langsung dari RustFS…`);
+
+    // Buka URL langsung — browser download dari RustFS, bukan lewat server kita
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = key.split("/").pop();
+    a.click();
+  }
+
+  // ─── Delete flow ──────────────────────────────────────────────────────────
+  async function deleteFile(key) {
+    if (!confirm(`Hapus ${key}?`)) return;
+    await fetch(`${API}/files?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+    log(`File dihapus: ${key}`, "info");
+    loadFiles();
+  }
+
+  // ─── List files ───────────────────────────────────────────────────────────
+  async function loadFiles() {
+    const res = await fetch(`${API}/files`);
+    const { files } = await res.json();
+    const el = document.getElementById("fileList");
+
+    if (!files.length) {
+      el.innerHTML = `<div class="empty">Belum ada file. Coba upload dulu!</div>`;
+      return;
+    }
+
+    el.innerHTML = files.map(f => {
+      const name = f.key.split("/").pop();
+      const size = f.size > 1024 * 1024
+        ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
+        : `${(f.size / 1024).toFixed(1)} KB`;
+      return `
+        <div class="file-item">
+          <span class="name">📄 ${name}</span>
+          <span class="meta">${size}</span>
+          <div class="file-actions">
+            <button class="secondary" onclick="downloadFile('${f.key}')">⬇ Download</button>
+            <button class="danger" onclick="deleteFile('${f.key}')">🗑</button>
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  // ─── Event listeners ─────────────────────────────────────────────────────
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("fileInput");
+
+  dropzone.onclick = () => fileInput.click();
+  fileInput.onchange = (e) => [...e.target.files].forEach(uploadFile);
+
+  dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add("drag"); };
+  dropzone.ondragleave = () => dropzone.classList.remove("drag");
+  dropzone.ondrop = (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("drag");
+    [...e.dataTransfer.files].forEach(uploadFile);
+  };
+
+  // Load on start
+  loadFiles();
+</script>
+</body>
+</html>
