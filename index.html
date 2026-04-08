@@ -152,7 +152,7 @@
 <script>
   const API = "http://localhost:3000";
 
-  // ─── Logging ─────────────────────────────────────────────────────────────
+  // Logging
   function log(msg, type = "info") {
     const el = document.getElementById("log");
     const time = new Date().toLocaleTimeString("id-ID");
@@ -160,7 +160,7 @@
     el.scrollTop = el.scrollHeight;
   }
 
-  // ─── Upload flow ─────────────────────────────────────────────────────────
+  // Upload flow
   async function uploadFile(file) {
     log(`Meminta presigned URL untuk: ${file.name}…`);
 
@@ -198,7 +198,7 @@
     loadFiles();
   }
 
-  // ─── Download flow ────────────────────────────────────────────────────────
+  // Download flow
   async function downloadFile(key) {
     log(`Meminta presigned URL untuk download: ${key}…`);
 
@@ -214,7 +214,7 @@
     a.click();
   }
 
-  // ─── Delete flow ──────────────────────────────────────────────────────────
+  // Delete flow
   async function deleteFile(key) {
     if (!confirm(`Hapus ${key}?`)) return;
     await fetch(`${API}/files?key=${encodeURIComponent(key)}`, { method: "DELETE" });
@@ -222,7 +222,7 @@
     loadFiles();
   }
 
-  // ─── List files ───────────────────────────────────────────────────────────
+  // List files
   async function loadFiles() {
     const res = await fetch(`${API}/files`);
     const { files } = await res.json();
@@ -250,7 +250,7 @@
     }).join("");
   }
 
-  // ─── Event listeners ─────────────────────────────────────────────────────
+  // Event listeners
   const dropzone = document.getElementById("dropzone");
   const fileInput = document.getElementById("fileInput");
 
